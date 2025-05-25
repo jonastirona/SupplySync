@@ -1,0 +1,8 @@
+for inventory, orders, and suppliers, do not use template data. use/create actual data from database.  for example, the supplied products in a supplier should actually exist, not just made up. put a couple items in the databases for each. these databases should be real, not just frontend components. they should be in the backend.
+
+fix add inventory add orders add suppliers buttons
+
+fix user creation and auth
+
+fix name display
+

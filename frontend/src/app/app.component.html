@@ -1,0 +1,22 @@
+<div class="app-container">
+  <header class="header" *ngIf="authService.isAuthenticated()">
+    <div class="logo">
+      <h1>SupplySync</h1>
+    </div>
+    <nav class="nav-menu">
+      <a routerLink="/dashboard" routerLinkActive="active" class="nav-link">Dashboard</a>
+      <a routerLink="/inventory" routerLinkActive="active" class="nav-link">Inventory</a>
+      <a routerLink="/orders" routerLinkActive="active" class="nav-link">Orders</a>
+      <a routerLink="/suppliers" routerLinkActive="active" class="nav-link">Suppliers</a>
+      <button class="nav-link logout-button" (click)="onLogout()">Logout</button>
+    </nav>
+  </header>
+
+  <main class="main-content" [class.auth-layout]="!authService.isAuthenticated()">
+    <router-outlet></router-outlet>
+  </main>
+
+  <footer class="footer" *ngIf="authService.isAuthenticated()">
+    <p>&copy; 2024 SupplySync. All rights reserved.</p>
+  </footer>
+</div>
