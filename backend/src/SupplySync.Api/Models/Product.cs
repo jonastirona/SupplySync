@@ -7,7 +7,7 @@ public class Product
 {
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
-    public string? Id { get; set; }
+    public string Id { get; set; }
     
     [BsonRequired]
     public required string Name { get; set; }
@@ -17,10 +17,24 @@ public class Product
     
     [BsonRequired]
     public required string Category { get; set; }
-    
+
+    [BsonRepresentation(BsonType.ObjectId)]
+    public required string SupplierId { get; set; }
+
+    [BsonRequired]
+    public required List<WarehouseInventory> Warehouses { get; set; }
+
+    [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
+    public DateTime CreatedAt { get; set; }
+
+    [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class WarehouseInventory
+{
+    [BsonRepresentation(BsonType.ObjectId)]
+    public required string WarehouseId { get; set; }
     public int Quantity { get; set; }
-    
-    public string? Description { get; set; }
-    
     public int ReorderThreshold { get; set; }
 } 
