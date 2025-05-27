@@ -16,9 +16,4 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.11.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\SupplySync.Core\SupplySync.Core.csproj" />
-    <ProjectReference Include="..\SupplySync.Infrastructure\SupplySync.Infrastructure.csproj" />
-  </ItemGroup>
-
 </Project>

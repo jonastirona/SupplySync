@@ -40,6 +40,8 @@ PRODUCT1_ID=""
 PRODUCT2_ID=""
 ADMIN_TOKEN=""
 STAFF_TOKEN=""
+ADMIN_ID=""
+STAFF_ID=""
 
 # cleanup on ctrl+c
 cleanup() {
@@ -59,6 +61,12 @@ cleanup() {
     fi
     if [ ! -z "$SUPPLIER_ID" ]; then
         curl -s -H "Authorization: Bearer $ADMIN_TOKEN" -X DELETE "$API_URL/suppliers/$SUPPLIER_ID" > /dev/null
+    fi
+    if [ ! -z "$ADMIN_ID" ]; then
+        curl -s -H "Authorization: Bearer $ADMIN_TOKEN" -X DELETE "$API_URL/auth/users/$ADMIN_ID" > /dev/null
+    fi
+    if [ ! -z "$STAFF_ID" ]; then
+        curl -s -H "Authorization: Bearer $ADMIN_TOKEN" -X DELETE "$API_URL/auth/users/$STAFF_ID" > /dev/null
     fi
 
     echo -e "${YELLOW}Test interrupted. Resources cleaned up.${NC}"
@@ -136,6 +144,20 @@ STAFF_TOKEN=$(echo $LOGIN_BODY | sed 's/.*"token":"\([^"]*\)".*/\1/')
 
 if [ -z "$STAFF_TOKEN" ]; then
     echo -e "${RED}Failed to get staff token${NC}"
+    exit 1
+fi
+
+# Store user IDs from registration responses
+ADMIN_ID=$(echo $REGISTER_BODY | sed 's/.*"id":"\([^"]*\)".*/\1/')
+if [ -z "$ADMIN_ID" ]; then
+    echo -e "${RED}Failed to get admin user ID${NC}"
+    exit 1
+fi
+
+# Store staff ID from registration response
+STAFF_ID=$(echo $REGISTER_BODY | sed 's/.*"id":"\([^"]*\)".*/\1/')
+if [ -z "$STAFF_ID" ]; then
+    echo -e "${RED}Failed to get staff user ID${NC}"
     exit 1
 fi
 
@@ -540,6 +562,10 @@ curl -s -X DELETE "$API_URL/warehouses/$WAREHOUSE2_ID" -H "Authorization: Bearer
 
 # Delete supplier
 curl -s -X DELETE "$API_URL/suppliers/$SUPPLIER_ID" -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null
+
+# Delete test users
+curl -s -X DELETE "$API_URL/auth/users/$STAFF_ID" -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null
+curl -s -X DELETE "$API_URL/auth/users/$ADMIN_ID" -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null
 
 echo -e "${GREEN}✓ Cleanup completed${NC}"
 
