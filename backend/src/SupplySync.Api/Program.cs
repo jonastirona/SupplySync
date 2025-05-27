@@ -1,6 +1,7 @@
 using SupplySync.Api.Data;
 using SupplySync.Api.Models;
 using SupplySync.Api.Models.Requests;
+using SupplySync.Api.Filters;
 using MongoDB.Driver;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -19,19 +20,34 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
-    // Document 201 responses
-    options.SwaggerDoc("v1", new OpenApiInfo { Title = "SupplySync API", Version = "v1" });
+    // Document API information
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "SupplySync API",
+        Version = "v1",
+        Description = "Supply Chain Management System API",
+        Contact = new OpenApiContact
+        {
+            Name = "SupplySync Team"
+        }
+    });
     
-    // Add JWT Authentication to Swagger
+    // Add JWT Bearer Authentication
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Description = """
+            JWT Authorization header using the Bearer scheme.
+            Enter 'Bearer' [space] and then your token in the text input below.
+            Example: 'Bearer 12345abcdef'
+            """,
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT"
     });
 
+    // Add global security requirement
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -46,6 +62,9 @@ builder.Services.AddSwaggerGen(options =>
             Array.Empty<string>()
         }
     });
+
+    // Add operation filter to exclude auth requirement for login/register endpoints
+    options.OperationFilter<SwaggerAuthOperationFilter>();
 });
 
 // Configure MongoDB
