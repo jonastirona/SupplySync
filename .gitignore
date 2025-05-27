@@ -53,4 +53,5 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 
-backend/SupplySync.Api/appsettings.json
+backend/SupplySync.Api/appsettings.jsonmongodb-compass*.deb
+mongodb-compass*.deb
