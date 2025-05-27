@@ -7,7 +7,7 @@ public class Product
 {
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; }
+    public string? Id { get; set; }
     
     [BsonRequired]
     public required string Name { get; set; }
@@ -18,6 +18,7 @@ public class Product
     [BsonRequired]
     public required string Category { get; set; }
 
+    [BsonRequired]
     [BsonRepresentation(BsonType.ObjectId)]
     public required string SupplierId { get; set; }
 
@@ -33,8 +34,10 @@ public class Product
 
 public class WarehouseInventory
 {
+    [BsonRequired]
     [BsonRepresentation(BsonType.ObjectId)]
     public required string WarehouseId { get; set; }
+    
     public int Quantity { get; set; }
     public int ReorderThreshold { get; set; }
 } 

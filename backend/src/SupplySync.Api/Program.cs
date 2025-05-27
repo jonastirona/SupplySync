@@ -1,9 +1,16 @@
 using SupplySync.Api.Data;
 using SupplySync.Api.Models;
+using SupplySync.Api.Models.Requests;
 using MongoDB.Driver;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.OpenApi.Models;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,10 +21,68 @@ builder.Services.AddSwaggerGen(options =>
 {
     // Document 201 responses
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "SupplySync API", Version = "v1" });
+    
+    // Add JWT Authentication to Swagger
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
 });
 
-// Add MongoDB
+// Configure MongoDB
+builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDb"));
 builder.Services.AddSingleton<MongoDbContext>();
+
+// Configure JWT authentication
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        var jwtSecret = builder.Configuration["Jwt:Secret"];
+            
+        if (string.IsNullOrEmpty(jwtSecret))
+            throw new InvalidOperationException("JWT secret is not configured");
+            
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
+        };
+    });
+
+// Configure authorization with roles
+builder.Services.AddAuthorization(options =>
+{
+    // Default policy requires authentication
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+
+    // Admin-only policy
+    options.AddPolicy("RequireAdminRole", policy =>
+        policy.RequireRole("Admin"));
+});
 
 var app = builder.Build();
 
@@ -29,6 +94,140 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Add Authentication & Authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Register endpoint
+app.MapPost("/api/auth/register", async (MongoDbContext db, RegisterRequest request) =>
+{
+    // Validate role code
+    string role = request.RoleCode switch
+    {
+        "ADMIN123" => "Admin",
+        "STAFF123" => "Staff",
+        _ => string.Empty
+    };
+
+    if (string.IsNullOrEmpty(role))
+    {
+        return Results.BadRequest("Invalid role code");
+    }
+
+    var usersCollection = db.Users;
+
+    // Check for existing username or email
+    var existingUser = await usersCollection
+        .Find(u => u.Username == request.Username || u.Email == request.Email)
+        .FirstOrDefaultAsync();
+
+    if (existingUser != null)
+    {
+        if (existingUser.Username == request.Username)
+        {
+            return Results.BadRequest("Username already exists");
+        }
+        return Results.BadRequest("Email already exists");
+    }
+
+    // Create new user with hashed password
+    var user = new User
+    {
+        Username = request.Username,
+        Email = request.Email,
+        PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+        Role = role,
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow
+    };
+
+    await usersCollection.InsertOneAsync(user);
+
+    // Return success response with user ID and role
+    return Results.Created($"/api/users/{user.Id}", new { Id = user.Id, Role = user.Role });
+})
+.AllowAnonymous()  // Allow anonymous access
+.WithName("Register")
+.Produces<object>(201)
+.Produces(400)
+.WithOpenApi(operation =>
+{
+    operation.Summary = "Register a new user";
+    operation.Description = "Creates a new user account with the specified role";
+    operation.Responses["201"].Description = "User successfully registered";
+    operation.Responses["400"].Description = "Invalid request (duplicate username/email or invalid role code)";
+    return operation;
+});
+
+// Login endpoint
+app.MapPost("/api/auth/login", async (MongoDbContext db, IConfiguration config, LoginRequest request) =>
+{
+    var user = await db.Users
+        .Find(u => u.Email == request.Email)
+        .FirstOrDefaultAsync();
+
+    if (user == null)
+    {
+        return Results.BadRequest("Invalid email or password");
+    }
+
+    if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+    {
+        return Results.BadRequest("Invalid email or password");
+    }
+
+    // Generate JWT token
+    var jwtSecret = config["Jwt:Secret"] ?? 
+        throw new InvalidOperationException("JWT secret is not configured");
+
+    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
+    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+    var claims = new[]
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, user.Id),
+        new Claim(JwtRegisteredClaimNames.Email, user.Email),
+        new Claim(ClaimTypes.Role, user.Role),
+        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+    };
+
+    var token = new JwtSecurityToken(
+        claims: claims,
+        expires: DateTime.UtcNow.AddHours(24),
+        signingCredentials: creds
+    );
+
+    var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+    return Results.Ok(new { Token = tokenString, Role = user.Role });
+})
+.AllowAnonymous()  // Allow anonymous access
+.WithName("Login")
+.Produces<object>(200)
+.Produces(400)
+.WithOpenApi(operation =>
+{
+    operation.Summary = "Login with email and password";
+    operation.Description = "Authenticates a user and returns a JWT token";
+    operation.Responses["200"].Description = "Login successful";
+    operation.Responses["400"].Description = "Invalid credentials";
+    return operation;
+});
+
+// Protected test endpoint
+app.MapGet("/api/test/auth", () =>
+{
+    return Results.Ok(new { message = "You have access to this protected endpoint!" });
+})
+.RequireAuthorization()  // This makes the endpoint require authentication
+.WithName("TestAuth")
+.WithOpenApi(operation =>
+{
+    operation.Summary = "Test protected endpoint";
+    operation.Description = "This endpoint requires a valid JWT token";
+    return operation;
+});
 
 // Helper function to validate MongoDB ObjectId format
 bool IsValidObjectId(string id)
@@ -69,7 +268,7 @@ app.MapPost("/api/products", async (MongoDbContext db, Product product) =>
     // Validate warehouses exist
     var warehouseIds = product.Warehouses.Select(w => w.WarehouseId).ToList();
     var warehousesExist = await db.GetCollection<Warehouse>("Warehouses")
-        .Find(w => warehouseIds.Contains(w.Id))
+        .Find(w => w.Id != null && warehouseIds.Contains(w.Id))
         .ToListAsync();
     if (warehousesExist.Count != warehouseIds.Count)
         return Results.BadRequest("One or more invalid warehouse IDs");
@@ -82,6 +281,7 @@ app.MapPost("/api/products", async (MongoDbContext db, Product product) =>
 
     return Results.Created($"/api/products/{product.Id}", product);
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("CreateProduct")
 .Produces<Product>(201)
 .Produces(400)
@@ -98,6 +298,7 @@ app.MapGet("/api/products", async (MongoDbContext db) =>
     var products = await collection.Find(_ => true).ToListAsync();
     return Results.Ok(products);
 })
+.RequireAuthorization()
 .WithName("GetAllProducts")
 .WithOpenApi();
 
@@ -113,6 +314,7 @@ app.MapGet("/api/products/{id}", async (MongoDbContext db, string id) =>
         return Results.NotFound();
     return Results.Ok(product);
 })
+.RequireAuthorization()
 .WithName("GetProductById")
 .WithOpenApi();
 
@@ -152,7 +354,7 @@ app.MapPut("/api/products/{id}", async (MongoDbContext db, string id, Product up
         return Results.BadRequest("Invalid warehouse ID format");
 
     var warehousesExist = await db.GetCollection<Warehouse>("Warehouses")
-        .Find(w => warehouseIds.Contains(w.Id))
+        .Find(w => w.Id != null && warehouseIds.Contains(w.Id))
         .ToListAsync();
     if (warehousesExist.Count != warehouseIds.Count)
         return Results.BadRequest("One or more invalid warehouse IDs");
@@ -170,7 +372,7 @@ app.MapPut("/api/products/{id}", async (MongoDbContext db, string id, Product up
         // Remove from old supplier
         var removeUpdate = Builders<Supplier>.Update.Pull(s => s.ProductsSupplied, id);
         await suppliersCollection
-            .UpdateOneAsync(s => s.Id == existingProduct.SupplierId, removeUpdate);
+            .UpdateOneAsync(s => s.Id != null && s.ProductsSupplied.Contains(id), removeUpdate);
 
         // Add to new supplier
         var addUpdate = Builders<Supplier>.Update.AddToSet(s => s.ProductsSupplied, id);
@@ -180,6 +382,7 @@ app.MapPut("/api/products/{id}", async (MongoDbContext db, string id, Product up
 
     return Results.Ok(updatedProduct);
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("UpdateProduct")
 .Produces<Product>(200)
 .Produces(400)
@@ -208,7 +411,7 @@ app.MapDelete("/api/products/{id}", async (MongoDbContext db, string id) =>
     // First remove product ID from supplier's productsSupplied
     var updateResult = await suppliersCollection
         .UpdateOneAsync(
-            s => s.Id == product.SupplierId,
+            s => s.Id != null && s.ProductsSupplied.Contains(id),
             Builders<Supplier>.Update.Pull(s => s.ProductsSupplied, id)
         );
 
@@ -228,6 +431,7 @@ app.MapDelete("/api/products/{id}", async (MongoDbContext db, string id) =>
 
     return Results.NoContent();
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("DeleteProduct")
 .Produces(204)
 .Produces(404)
@@ -246,6 +450,7 @@ app.MapGet("/api/suppliers", async (MongoDbContext db) =>
     var suppliers = await collection.Find(_ => true).ToListAsync();
     return Results.Ok(suppliers);
 })
+.RequireAuthorization()
 .WithName("GetAllSuppliers")
 .WithOpenApi();
 
@@ -261,6 +466,7 @@ app.MapGet("/api/suppliers/{id}", async (MongoDbContext db, string id) =>
         return Results.NotFound();
     return Results.Ok(supplier);
 })
+.RequireAuthorization()
 .WithName("GetSupplierById")
 .WithOpenApi();
 
@@ -283,6 +489,7 @@ app.MapPost("/api/suppliers", async (MongoDbContext db, Supplier supplier) =>
     await collection.InsertOneAsync(supplier);
     return Results.Created($"/api/suppliers/{supplier.Id}", supplier);
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("CreateSupplier")
 .Produces<Supplier>(201)  // Document 201 response
 .WithOpenApi(operation => {
@@ -338,6 +545,7 @@ app.MapPut("/api/suppliers/{id}", async (MongoDbContext db, string id, Supplier 
 
     return Results.Ok(updatedSupplier);
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("UpdateSupplier")
 .WithOpenApi();
 
@@ -363,6 +571,7 @@ app.MapDelete("/api/suppliers/{id}", async (MongoDbContext db, string id) =>
 
     return Results.NoContent();
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("DeleteSupplier")
 .Produces(204)
 .Produces(404)
@@ -383,6 +592,7 @@ app.MapGet("/api/warehouses", async (MongoDbContext db) =>
     var warehouses = await collection.Find(_ => true).ToListAsync();
     return Results.Ok(warehouses);
 })
+.RequireAuthorization()
 .WithName("GetAllWarehouses")
 .WithOpenApi();
 
@@ -398,6 +608,7 @@ app.MapGet("/api/warehouses/{id}", async (MongoDbContext db, string id) =>
         return Results.NotFound();
     return Results.Ok(warehouse);
 })
+.RequireAuthorization()
 .WithName("GetWarehouseById")
 .WithOpenApi();
 
@@ -427,6 +638,7 @@ app.MapPost("/api/warehouses", async (MongoDbContext db, Warehouse warehouse) =>
     await collection.InsertOneAsync(warehouse);
     return Results.Created($"/api/warehouses/{warehouse.Id}", warehouse);
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("CreateWarehouse")
 .Produces<Warehouse>(201)  // Document 201 response
 .WithOpenApi(operation => {
@@ -475,6 +687,7 @@ app.MapPut("/api/warehouses/{id}", async (MongoDbContext db, string id, Warehous
 
     return Results.Ok(updatedWarehouse);
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("UpdateWarehouse")
 .WithOpenApi();
 
@@ -501,6 +714,7 @@ app.MapDelete("/api/warehouses/{id}", async (MongoDbContext db, string id) =>
 
     return Results.NoContent();
 })
+.RequireAuthorization("RequireAdminRole")
 .WithName("DeleteWarehouse")
 .Produces(204)
 .Produces(404)
@@ -532,7 +746,9 @@ app.MapGet("/api/products/low-stock", async (MongoDbContext db) =>
     var allWarehouses = await warehouseCollection
         .Find(_ => true)
         .ToListAsync();
-    var warehousesDict = allWarehouses.ToDictionary(w => w.Id);
+    var warehousesDict = allWarehouses
+        .Where(w => w.Id != null)
+        .ToDictionary(w => w.Id!);
 
     // Enhance the response with warehouse-specific details
     var result = lowStockProducts.Select(p => new
@@ -554,6 +770,7 @@ app.MapGet("/api/products/low-stock", async (MongoDbContext db) =>
 
     return Results.Ok(result);
 })
+.RequireAuthorization()
 .WithName("GetLowStockProducts")
 .WithOpenApi();
 
@@ -578,6 +795,7 @@ app.MapGet("/api/suppliers/{id}/products", async (MongoDbContext db, string id) 
 
     return Results.Ok(products);
 })
+.RequireAuthorization()
 .WithName("GetSupplierProducts")
 .WithOpenApi();
 
@@ -617,9 +835,31 @@ app.MapGet("/api/warehouses/{id}/products", async (MongoDbContext db, string id)
 
     return Results.Ok(result);
 })
+.RequireAuthorization()
 .WithName("GetWarehouseProducts")
 .WithOpenApi();
 
 #endregion
+
+// Get current user's role
+app.MapGet("/api/auth/role", (ClaimsPrincipal user) =>
+{
+    var role = user.FindFirst(ClaimTypes.Role)?.Value;
+    if (string.IsNullOrEmpty(role))
+    {
+        return Results.BadRequest("Role not found in token");
+    }
+    return Results.Ok(new { Role = role });
+})
+.RequireAuthorization()  // Requires authentication but no specific role
+.WithName("GetUserRole")
+.Produces<object>(200)
+.Produces(400)
+.WithOpenApi(operation =>
+{
+    operation.Summary = "Get current user's role";
+    operation.Description = "Returns the role of the currently authenticated user";
+    return operation;
+});
 
 app.Run();

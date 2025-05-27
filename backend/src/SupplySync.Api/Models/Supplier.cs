@@ -7,7 +7,7 @@ public class Supplier
 {
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; }
+    public string? Id { get; set; }
 
     [BsonRequired]
     public required string Name { get; set; }
@@ -21,6 +21,7 @@ public class Supplier
     [BsonRequired]
     public required Address Address { get; set; }
 
+    [BsonRequired]
     [BsonRepresentation(BsonType.ObjectId)]
     public List<string> ProductsSupplied { get; set; } = new();
 

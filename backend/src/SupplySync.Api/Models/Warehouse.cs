@@ -7,7 +7,7 @@ public class Warehouse
 {
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; }
+    public string? Id { get; set; }
 
     [BsonRequired]
     public required string Name { get; set; }
@@ -18,8 +18,10 @@ public class Warehouse
     [BsonRequired]
     public required Address Address { get; set; }
 
+    [BsonRequired]
     public int Capacity { get; set; }
 
+    [BsonRequired]
     public int CurrentUtilization { get; set; }
 
     [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]

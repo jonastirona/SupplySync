@@ -1,6 +1,7 @@
 using MongoDB.Driver;
 using Microsoft.Extensions.Configuration;
 using MongoDB.Bson;
+using SupplySync.Api.Models;
 
 namespace SupplySync.Api.Data;
 
@@ -8,6 +9,7 @@ public class MongoDbContext
 {
     private readonly IMongoDatabase _database;
     private readonly string _productsCollectionName;
+    private const string _usersCollectionName = "Users";
 
     public MongoDbContext(IConfiguration configuration)
     {
@@ -19,11 +21,31 @@ public class MongoDbContext
         var client = new MongoClient(connectionString);
         _database = client.GetDatabase(databaseName);
         
-        // Ensure collection exists with correct schema
+        // Ensure collections exist
         if (!CollectionExists(_productsCollectionName))
         {
             _database.CreateCollection(_productsCollectionName);
         }
+        
+        if (!CollectionExists(_usersCollectionName))
+        {
+            _database.CreateCollection(_usersCollectionName);
+        }
+
+        // Create unique indexes for Users collection
+        var users = _database.GetCollection<User>(_usersCollectionName);
+        var userIndexes = new[]
+        {
+            new CreateIndexModel<User>(
+                Builders<User>.IndexKeys.Ascending(u => u.Username),
+                new CreateIndexOptions { Unique = true }
+            ),
+            new CreateIndexModel<User>(
+                Builders<User>.IndexKeys.Ascending(u => u.Email),
+                new CreateIndexOptions { Unique = true }
+            )
+        };
+        users.Indexes.CreateMany(userIndexes);
     }
 
     private bool CollectionExists(string collectionName)
@@ -47,4 +69,6 @@ public class MongoDbContext
     {
         return _database;
     }
+
+    public IMongoCollection<User> Users => _database.GetCollection<User>(_usersCollectionName);
 } 
