@@ -19,6 +19,12 @@ public class Product
     public required string Category { get; set; }
 
     [BsonRequired]
+    public required string Description { get; set; }
+
+    [BsonRequired]
+    public required decimal Price { get; set; }
+
+    [BsonRequired]
     [BsonRepresentation(BsonType.ObjectId)]
     public required string SupplierId { get; set; }
 

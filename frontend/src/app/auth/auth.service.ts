@@ -16,6 +16,7 @@ export interface RegisterCredentials extends LoginCredentials {
 export interface AuthResponse {
   token: string;
   role: string;
+  username: string;
 }
 
 @Injectable({
@@ -27,8 +28,10 @@ export class AuthService {
   private readonly API_URL = `${this.BASE_URL}/api/auth`;
   private readonly TOKEN_KEY = 'auth_token';
   private readonly ROLE_KEY = 'user_role';
+  private readonly USERNAME_KEY = 'username';
   private isAuthenticatedSubject = new BehaviorSubject<boolean>(false);
   private userRoleSubject = new BehaviorSubject<string | null>(null);
+  private usernameSubject = new BehaviorSubject<string | null>(null);
   
   constructor(
     private http: HttpClient,
@@ -40,8 +43,10 @@ export class AuthService {
   private checkInitialAuth(): void {
     const token = localStorage.getItem(this.TOKEN_KEY);
     const role = localStorage.getItem(this.ROLE_KEY);
+    const username = localStorage.getItem(this.USERNAME_KEY);
     this.isAuthenticatedSubject.next(!!token);
     this.userRoleSubject.next(role);
+    this.usernameSubject.next(username);
   }
 
   get isAuthenticated$(): Observable<boolean> {
@@ -50,6 +55,10 @@ export class AuthService {
 
   get userRole$(): Observable<string | null> {
     return this.userRoleSubject.asObservable();
+  }
+
+  get username$(): Observable<string | null> {
+    return this.usernameSubject.asObservable();
   }
 
   private handleError(error: HttpErrorResponse) {
@@ -77,7 +86,7 @@ export class AuthService {
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json');
 
-    return this.http.post<AuthResponse>(
+    return this.http.post<any>(
       `${this.API_URL}/login`, 
       payload,
       { headers }
@@ -91,7 +100,15 @@ export class AuthService {
           });
           throw error;
         }),
-        tap(response => this.handleAuthSuccess(response))
+        tap(response => {
+          // For login, we'll use the email as username since backend doesn't return it
+          const authResponse: AuthResponse = {
+            token: response.token,
+            role: response.role,
+            username: credentials.email.split('@')[0] // Use email prefix as username
+          };
+          this.handleAuthSuccess(authResponse);
+        })
       );
   }
 
@@ -110,7 +127,7 @@ export class AuthService {
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json');
 
-    return this.http.post<AuthResponse>(
+    return this.http.post<any>(
       `${this.API_URL}/register`, 
       payload,
       { headers }
@@ -124,22 +141,34 @@ export class AuthService {
           });
           throw error;
         }),
-        tap(response => this.handleAuthSuccess(response))
+        tap(response => {
+          // For registration, use the username from the credentials
+          const authResponse: AuthResponse = {
+            token: response.token,
+            role: response.role,
+            username: credentials.username
+          };
+          this.handleAuthSuccess(authResponse);
+        })
       );
   }
 
   private handleAuthSuccess(response: AuthResponse): void {
     localStorage.setItem(this.TOKEN_KEY, response.token);
     localStorage.setItem(this.ROLE_KEY, response.role);
+    localStorage.setItem(this.USERNAME_KEY, response.username);
     this.isAuthenticatedSubject.next(true);
     this.userRoleSubject.next(response.role);
+    this.usernameSubject.next(response.username);
   }
 
   logout(): void {
     localStorage.removeItem(this.TOKEN_KEY);
     localStorage.removeItem(this.ROLE_KEY);
+    localStorage.removeItem(this.USERNAME_KEY);
     this.isAuthenticatedSubject.next(false);
     this.userRoleSubject.next(null);
+    this.usernameSubject.next(null);
     this.router.navigate(['/auth']);
   }
 

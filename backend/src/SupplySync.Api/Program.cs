@@ -766,42 +766,15 @@ app.MapGet("/api/products/low-stock", async (MongoDbContext db) =>
 {
     var collection = db.Products<Product>();
     
-    // First get all products
+    // Get all products
     var products = await collection.Find(_ => true).ToListAsync();
     
-    // Then filter in memory for products with low stock
+    // Filter products that have any warehouse with quantity below or at reorder threshold
     var lowStockProducts = products.Where(p => 
         p.Warehouses.Any(w => w.Quantity <= w.ReorderThreshold)
-    );
+    ).ToList();
 
-    // Get all warehouse details for enriching the response
-    var warehouseCollection = db.GetCollection<Warehouse>("Warehouses");
-    var allWarehouses = await warehouseCollection
-        .Find(_ => true)
-        .ToListAsync();
-    var warehousesDict = allWarehouses
-        .Where(w => w.Id != null)
-        .ToDictionary(w => w.Id!);
-
-    // Enhance the response with warehouse-specific details
-    var result = lowStockProducts.Select(p => new
-    {
-        Product = p,
-        LowStockWarehouses = p.Warehouses
-            .Where(w => w.Quantity <= w.ReorderThreshold)
-            .Select(w => new
-            {
-                WarehouseId = w.WarehouseId,
-                WarehouseName = warehousesDict.TryGetValue(w.WarehouseId, out var wh) ? wh.Name : null,
-                LocationCode = warehousesDict.TryGetValue(w.WarehouseId, out var wh2) ? wh2.LocationCode : null,
-                CurrentQuantity = w.Quantity,
-                ReorderThreshold = w.ReorderThreshold,
-                QuantityBelowThreshold = w.ReorderThreshold - w.Quantity
-            })
-            .ToList()
-    });
-
-    return Results.Ok(result);
+    return Results.Ok(lowStockProducts);
 })
 .RequireAuthorization()
 .WithName("GetLowStockProducts")
