@@ -1,0 +1,36 @@
+.sidenav-container {
+  height: 100vh;
+}
+
+.sidenav {
+  width: 250px;
+}
+
+.toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.content {
+  padding: 20px;
+  height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+
+// Active route styling
+.mat-mdc-list-item.active {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+// Make toolbar fixed
+mat-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+// Responsive adjustments
+@media (max-width: 768px) {
+  .sidenav {
+    width: 200px;
+  }
+} 
