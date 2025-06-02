@@ -29,6 +29,8 @@ builder.Services.AddCors(options =>
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddControllers();
+builder.Services.AddHttpClient();
 builder.Services.AddSwaggerGen(options =>
 {
     // Document API information
@@ -131,6 +133,9 @@ app.UseHttpsRedirection();
 // Add Authentication & Authorization middleware
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Map controllers
+app.MapControllers();
 
 // Register endpoint
 app.MapPost("/api/auth/register", async (MongoDbContext db, RegisterRequest request) =>

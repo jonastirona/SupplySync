@@ -2,38 +2,49 @@ using MongoDB.Driver;
 using Microsoft.Extensions.Configuration;
 using MongoDB.Bson;
 using SupplySync.Api.Models;
+using Microsoft.Extensions.Options;
 
 namespace SupplySync.Api.Data;
 
 public class MongoDbContext
 {
     private readonly IMongoDatabase _database;
-    private readonly string _productsCollectionName;
-    private const string _usersCollectionName = "Users";
+    private readonly MongoDbSettings _settings;
 
-    public MongoDbContext(IConfiguration configuration)
+    public MongoDbContext(IOptions<MongoDbSettings> settings)
     {
-        var mongoSection = configuration.GetSection("MongoDb");
-        var connectionString = mongoSection["ConnectionString"] ?? throw new ArgumentNullException("ConnectionString", "MongoDB connection string is not configured");
-        var databaseName = mongoSection["DatabaseName"] ?? throw new ArgumentNullException("DatabaseName", "MongoDB database name is not configured");
-        _productsCollectionName = mongoSection["ProductsCollectionName"] ?? throw new ArgumentNullException("ProductsCollectionName", "MongoDB products collection name is not configured");
+        _settings = settings.Value;
+        var client = new MongoClient(_settings.ConnectionString);
+        _database = client.GetDatabase(_settings.DatabaseName);
 
-        var client = new MongoClient(connectionString);
-        _database = client.GetDatabase(databaseName);
-        
         // Ensure collections exist
-        if (!CollectionExists(_productsCollectionName))
-        {
-            _database.CreateCollection(_productsCollectionName);
-        }
-        
-        if (!CollectionExists(_usersCollectionName))
-        {
-            _database.CreateCollection(_usersCollectionName);
-        }
+        EnsureCollectionsExist();
+        CreateIndexes();
+    }
 
+    private void EnsureCollectionsExist()
+    {
+        var collections = new[] 
+        {
+            _settings.ProductsCollectionName,
+            _settings.SuppliersCollectionName,
+            _settings.WarehousesCollectionName,
+            _settings.UsersCollectionName
+        };
+
+        foreach (var collection in collections)
+        {
+            if (!CollectionExists(collection))
+            {
+                _database.CreateCollection(collection);
+            }
+        }
+    }
+
+    private void CreateIndexes()
+    {
         // Create unique indexes for Users collection
-        var users = _database.GetCollection<User>(_usersCollectionName);
+        var users = Users;
         var userIndexes = new[]
         {
             new CreateIndexModel<User>(
@@ -55,20 +66,15 @@ public class MongoDbContext
         return collections.Any();
     }
 
-    public IMongoCollection<T> GetCollection<T>(string name)
-    {
-        return _database.GetCollection<T>(name);
-    }
+    public IMongoDatabase GetDatabase() => _database;
 
-    public IMongoCollection<T> Products<T>()
-    {
-        return GetCollection<T>(_productsCollectionName);
-    }
+    public IMongoCollection<T> GetCollection<T>(string name) => _database.GetCollection<T>(name);
 
-    public IMongoDatabase GetDatabase()
-    {
-        return _database;
-    }
+    public IMongoCollection<T> Products<T>() => _database.GetCollection<T>(_settings.ProductsCollectionName);
 
-    public IMongoCollection<User> Users => _database.GetCollection<User>(_usersCollectionName);
+    public IMongoCollection<T> Suppliers<T>() => _database.GetCollection<T>(_settings.SuppliersCollectionName);
+
+    public IMongoCollection<T> Warehouses<T>() => _database.GetCollection<T>(_settings.WarehousesCollectionName);
+
+    public IMongoCollection<User> Users => _database.GetCollection<User>(_settings.UsersCollectionName);
 } 
